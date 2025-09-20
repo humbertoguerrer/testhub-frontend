@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, FormEvent, KeyboardEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent, type KeyboardEvent } from "react";
 import Banner from "../components/Banner";
 import { useApi } from "../lib/useApi";
 

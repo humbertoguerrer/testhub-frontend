@@ -1,4 +1,4 @@
-import { useState, FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import Banner from "../components/Banner";
 import { useApi } from "../lib/useApi";
 
