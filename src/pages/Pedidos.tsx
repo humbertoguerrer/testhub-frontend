@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, FormEvent, KeyboardEvent } from "react";
 import Banner from "../components/Banner";
+import { useApi } from "../lib/useApi";
 
 type Pedido = {
   id: number;
   descricao: string;
-  valor: number; // Ex.: 512.9
+  valor: number;      // Ex.: 512.9
   status: "ABERTO" | "PAGO" | "CANCELADO" | string;
   pessoaId: number;
 };
@@ -16,9 +17,7 @@ type Pessoa = {
 
 // Formatadores / Máscara de dinheiro
 const fmtReal = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
-function somenteDigitos(valor: string) {
-  return valor.replace(/\D/g, "");
-}
+function somenteDigitos(valor: string) { return valor.replace(/\D/g, ""); }
 function formatarMoedaBR(entrada: string) {
   const digitos = somenteDigitos(entrada);
   const semZeros = digitos.replace(/^0+/, "");
@@ -36,7 +35,7 @@ function desformatarMoedaBR(mask: string) {
 }
 
 export default function Pedidos() {
-  const baseUrl = import.meta.env.VITE_API_URL || "http://localhost:8080";
+  const { apiFetch } = useApi();
 
   const [pedidos, setPedidos] = useState<Pedido[]>([]);
   const [pessoas, setPessoas] = useState<Pessoa[]>([]);
@@ -56,16 +55,20 @@ export default function Pedidos() {
   const [ordDirecao, setOrdDirecao] = useState<"asc" | "desc">("asc");
 
   useEffect(() => {
-    Promise.all([
-      fetch(`${baseUrl}/pedidos`).then((r) => r.json()),
-      fetch(`${baseUrl}/pessoas`).then((r) => r.json()),
-    ])
-      .then(([ped, pes]) => {
+    (async () => {
+      try {
+        const [ped, pes] = await Promise.all([
+          apiFetch("/pedidos").then(r => r.json()),
+          apiFetch("/pessoas").then(r => r.json()),
+        ]);
         setPedidos(ped);
         setPessoas(pes);
-      })
-      .finally(() => setCarregando(false));
-  }, [baseUrl]);
+      } finally {
+        setCarregando(false);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // --- Handlers do campo Valor (máscara) ---
   function handleValorChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -73,12 +76,12 @@ export default function Pedidos() {
     setValorTexto(formatado);
   }
 
-  function handleValorKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+  function handleValorKeyDown(e: KeyboardEvent<HTMLInputElement>) {
     const liberadas = ["Backspace", "Delete", "ArrowLeft", "ArrowRight", "Tab", "Home", "End"];
     if (liberadas.includes(e.key)) return;
     if (e.ctrlKey || e.metaKey) return; // copiar/colar
-    if (/\d/.test(e.key)) return; // apenas números
-    e.preventDefault(); // bloqueia e/E/+/-/., letras etc.
+    if (/\d/.test(e.key)) return;       // apenas números
+    e.preventDefault();                  // bloqueia e/E/+/-/., letras etc.
   }
 
   function limparFormulario() {
@@ -90,49 +93,38 @@ export default function Pedidos() {
     setMensagem("");
   }
 
-  function salvarPedido(e: React.FormEvent) {
+  async function salvarPedido(e: FormEvent) {
     e.preventDefault();
 
     const valorNumero = desformatarMoedaBR(valorTexto);
+    const body = { descricao, valor: valorNumero, status, pessoaId: pessoaId ? Number(pessoaId) : null };
 
-    const pedido = {
-      descricao,
-      valor: valorNumero,
-      status,
-      pessoaId: pessoaId ? Number(pessoaId) : null,
-    };
+    const path = idEmEdicao ? `/pedidos/${idEmEdicao}` : "/pedidos";
+    const method = idEmEdicao ? "PUT" : "POST";
 
-    const metodo = idEmEdicao ? "PUT" : "POST";
-    const url = idEmEdicao ? `${baseUrl}/pedidos/${idEmEdicao}` : `${baseUrl}/pedidos`;
-
-    fetch(url, {
-      method: metodo,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(pedido),
-    })
-      .then((res) => {
-        if (!res.ok) throw new Error("Erro ao salvar");
-        limparFormulario();
-        setMensagem(idEmEdicao ? "Pedido atualizado com sucesso!" : "Pedido cadastrado com sucesso!");
-        return fetch(`${baseUrl}/pedidos`);
-      })
-      .then((res) => res.json())
-      .then((data) => setPedidos(data))
-      .catch(() => setMensagem("Erro ao salvar pedido."));
+    try {
+      const res = await apiFetch(path, { method, body: JSON.stringify(body) });
+      if (!res.ok) throw new Error("Erro ao salvar");
+      limparFormulario();
+      setMensagem(idEmEdicao ? "Pedido atualizado com sucesso!" : "Pedido cadastrado com sucesso!");
+      const novos = await apiFetch("/pedidos").then(r => r.json());
+      setPedidos(novos);
+    } catch {
+      setMensagem("Erro ao salvar pedido.");
+    }
   }
 
-  function excluirPedido(id: number) {
+  async function excluirPedido(id: number) {
     if (!window.confirm("Tem certeza que deseja excluir este pedido?")) return;
-
-    fetch(`${baseUrl}/pedidos/${id}`, { method: "DELETE" })
-      .then((res) => {
-        if (!res.ok) throw new Error("Erro ao excluir");
-        setMensagem("Pedido excluído com sucesso!");
-        return fetch(`${baseUrl}/pedidos`);
-      })
-      .then((res) => res.json())
-      .then((data) => setPedidos(data))
-      .catch(() => setMensagem("Erro ao excluir pedido."));
+    try {
+      const res = await apiFetch(`/pedidos/${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("Erro ao excluir");
+      setMensagem("Pedido excluído com sucesso!");
+      const novos = await apiFetch("/pedidos").then(r => r.json());
+      setPedidos(novos);
+    } catch {
+      setMensagem("Erro ao excluir pedido.");
+    }
   }
 
   function editarPedido(pedido: Pedido) {
@@ -280,7 +272,7 @@ export default function Pedidos() {
         <div className="flex gap-2">
           <select
             value={ordCampo}
-            onChange={(e) => setOrdCampo(e.target.value as "descricao" | "status" | "valor")}
+            onChange={(e) => setOrdCampo(e.target.value as any)}
             className="border border-gray-300 rounded-lg px-3 py-2 bg-white"
           >
             <option value="descricao">Descrição</option>
